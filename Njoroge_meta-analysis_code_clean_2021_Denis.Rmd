@@ -1,0 +1,1542 @@
+---
+title: "Njoroge et al 2021 Meta-analysis  MS script"
+author: "Gbadamassi G.O. Dossa"
+date: This document was last updated on `r format(Sys.time(), "%a %b %d %Y %H:%M:%S")`
+output: 
+#rmdformats::material
+  html_document:
+    fig_caption: yes
+    theme: spacelab #readable #sandstone #spacelab #flatly
+    highlight: pygments #tango #kate
+    toc: TRUE
+    toc_depth: 3
+    number_sections: TRUE
+    toc_float:
+      collapsed: TRUE
+      smooth_scroll: TRUE
+      toc: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+getwd()
+```
+
+# Introduction
+This R script records Denis et al 2021 meta analysis on effect of fauna and litter mixture on litter decomposition across the globe. The manuscript is entitled "Soil fauna accelerate litter mixture decomposition globally, especially in dry environments" published in Journal of Ecology xxx.
+
+This work is based on conceptual figure
+
+![Hypothetical framework of this study](C:/Users/Acer/Downloads/Denis meta-analysis/Figure1.png)
+
+FIGURE 1 Hypothetical framework of this study. Litter mixture species richness and soil fauna are experimentally manipulated to depict their respective effect on litter decomposition (Hypotheses 1 and 2) and how precipitation levels influence those interactions. H1- Multiple species litter will have higher decomposition rate than the component single species litter in the mixture and this effect will increase (up to a saturation level) with an increase of litter species richness in mixture. H2- Inclusion of soil fauna will cause a change in the magnitude and direction of litter decomposition of multiple-species experiments, but not in single-species experiments. H3-With decreased precipitation, soil fauna will have a greater positive impact on the decomposition of litter mixtures.
+
+# Analysis
+## Data input and exploration
+### Data input
+The data used in this study is downloadable from xxx. 
+Let's import data on .csv format file into R.
+```{r, Data input}
+
+litmeta<-read.csv("litter_mixture.csv", header = TRUE, sep = ",", quote = "\"",
+                dec = ".", fill = TRUE, comment.char = "")
+```
+
+### Data exploration
+```{r}
+dim(litmeta)
+head(litmeta)
+summary(litmeta)
+colnames(litmeta)
+```
+
+#### Studies geograpical distribution
+Before plotting the distribution of the studies site, let's load the libraries needed to do so.
+
+```{r, mappackages}
+library(sf)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(sp)
+library(rworldmap)
+library(rgeos)
+library(ggspatial)
+library(ggmap)
+library(OpenStreetMap)
+library(ggplot2)
+library(sf)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(maps)
+```
+
+Let's now plot the globe map. 
+
+```{r, worldmap}
+world_map <- map_data("world")
+```
+
+Then, we need to create a base plot with gpplot2 package.
+
+```{r, basemap}
+library(ggplot2)
+p <- ggplot() + coord_fixed() + xlab("") + ylab("")
+```
+
+Add map to base plot
+
+```{r}
+base_world_messy <- p + geom_polygon(data=world_map, aes(x=long, y=lat, group=group),
+                                     colour="gray90", fill="gray90")
+base_world_messy
+```
+
+
+Strip the map down so it looks super clean and beautiful
+
+```{r,cleanedmap}
+cleanup <-
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_rect(fill = 'white', colour = 'white'),
+        axis.line = element_line(colour = "white"), legend.position="none",
+        axis.ticks=element_blank(), axis.text.x=element_blank(),
+        axis.text.y=element_blank())
+base_world <- base_world_messy + cleanup
+base_world
+```
+
+Add simple data points to map. We need to first know the unqiue points as studies has replicates.
+
+```{r, sitepoints}
+names(litmeta)
+unique(litmeta$Country)
+unique(litmeta$Site)
+unique(litmeta$publication.number)
+```
+
+Construct a dataframe with a summary statistics which is the number of samples per observation 
+
+```{r}
+library(plyr)## 
+df_site <- ddply(litmeta, c("Country", "Site","long_decimals","lat_decimals", "climatic_region", "eco_type"), summarise,
+                 N= length(m_observed))
+df_site
+```
+
+Now, you the above information, to built a customized map that shows studies geographical distribution
+
+```{r, figure2}
+p<- base_world +
+  geom_point(data=df_site,  aes(x=long_decimals, y=lat_decimals, colour=eco_type, shape= climatic_region),
+             size=2.5, alpha=I(1.0)) +
+  scale_colour_manual(values=c("#E69F00", "#009E73", "#D55E00", "#0072B2")) 
+p<- p+ theme(legend.position="bottom", legend.box = "vertical") +
+  labs(shape="Climatic region                 ", colour="                   Ecosystem type              ")+
+  theme(legend.justification = "left")+
+  theme(legend.title.align = -2) + theme(legend.background = element_rect(fill = "white"),
+                                         legend.key = element_rect(fill = "white", color = NA))+
+  guides(color=guide_legend(title.hjust=0.5))
+figure2<- p+theme(legend.title = element_text(face = "bold",size = 12))+ theme(legend.text=element_text(size=11))
+figure2
+```
+
+
+#### Exclusion of negative mass loss points 
+
+Going back to the data exploration, some values are negative in m_expected and in m_observed. We confirmed with relevant authors about the accuracy of these data. The authors confirm their accuracy, thus we deleted them from our next analysis.
+
+```{r}
+dim(litmeta)
+litmeta<-litmeta[!litmeta$m_expected<0,]
+dim(litmeta)
+litmeta<-litmeta[!litmeta$m_observed<0,]
+dim(litmeta)
+```
+
+Check with summary and see if the negative values are removed
+
+```{r}
+summary(litmeta)
+colnames(litmeta)
+```
+
+Read some columns as numeric.
+
+#### Convert to numeric variables
+
+```{r}
+litmeta$Lit_Car<-as.numeric(litmeta$Lit_Car)
+litmeta$Lit_Pho<-as.numeric(litmeta$Lit_Pho)
+litmeta$Lit_Nit<-as.numeric(litmeta$Lit_Nit)
+litmeta$Lit_Lig<-as.numeric(litmeta$Lit_Lig)
+litmeta$Lit_Car_Nit_ratio<-as.numeric(litmeta$Lit_Car_Nit_ratio)
+litmeta$Lit_Lig_Nit_ratio<-as.numeric(litmeta$Lit_Lig_Nit_ratio)
+litmeta$expected_decay_k<-as.numeric(litmeta$expected_decay_k)
+litmeta$observed_decay_k<-as.numeric(litmeta$observed_decay_k)
+litmeta$Annual_precip<-as.numeric(litmeta$Annual_precip)
+litmeta$Time_Days<-as.numeric(litmeta$Time_Days)
+
+```
+
+Here we subset the columns that we need the first 6 columns are not useful for subsequent analyses.
+
+```{r}
+litmeta<-as.data.frame(litmeta[,7:dim(litmeta)[2]])
+str(litmeta)
+summary(litmeta)
+colnames(litmeta)
+```
+
+#### Convert some variables to factors
+
+Read some variables as a factor
+
+```{r}
+litmeta$Continent<-as.factor(litmeta$Continent)
+litmeta$Country<-as.factor(litmeta$Country)
+levels(litmeta$Country)
+litmeta$Fauna_available<-as.factor(litmeta$Fauna_available)
+levels(litmeta$Fauna_available)
+litmeta$Litter_type<-as.factor(litmeta$Litter_type)
+levels(litmeta$Litter_type)
+litmeta$Site <-as.factor(litmeta$Site)
+levels(litmeta$Site)
+litmeta$eco_type <-as.factor(litmeta$eco_type)
+levels(litmeta$eco_type)
+litmeta$precipitation_levels <-as.factor(litmeta$precipitation_levels)
+levels(litmeta$precipitation_levels)
+litmeta$climatic_region<-as.factor(litmeta$climatic_region)
+litmeta$Fauna_group<-as.factor(litmeta$Fauna_group)
+```
+
+## Computations of response ratio
+
+We calculated the response ratio (log transformed ratio of means) with the *escalc()* in the package metafor. 
+
+```{r}
+library(metafor)
+litmeta
+lnRR <- escalc(measure = "ROM", n1i = n_expected, n2i = n_observed, m1i = m_expected, 
+               m2i = m_observed, sd1i = sd_expected, sd2i = sd_observed, append=FALSE,data=litmeta)
+summary(lnRR)
+dim(lnRR)
+```
+
+Add the effect sizes to the original data set with cbind or bind_cols from the package dplyr
+
+```{r}
+library(dplyr) ##Think about
+litmeta <- bind_cols(litmeta, lnRR)
+dim(litmeta)
+head(litmeta)
+min(litmeta[,ncol(litmeta)])
+max(litmeta[,ncol(litmeta)])
+```
+
+## Create a random effect model.
+
+```{r}
+random_m <- rma(yi = yi, vi = vi, method = "REML", data = litmeta)
+summary(random_m)
+```
+
+## Publication bias
+
+We checked publication bias by using funnel plot method
+
+```{r, pubbias}
+funnel(random_m)
+radial(random_m)
+```
+
+we can also use contour funnel plot as this another way to check for publication bias.
+Save this funnel plot as supplementary material
+
+```{r}
+#path<-getwd()
+funnel(litmeta$yi, litmeta$vi, yaxis="seinv",
+       xlim=c(-2,2), ylim=c(.00001,8), xaxs="i", yaxs="i", las=1,
+       level=c(.10, .05, .01), shade=c("white", "gray55", "gray75"),
+       legend=TRUE, back="gray90", ylab="Precision (1/se)")
+#ggsave(filename="funnel.png", plot=contour, device="png",
+#       path=path, height=6, width=8, units="in", dpi=500)
+```
+
+## Rosenberg fail safe number
+
+```{r}
+fsn(yi, vi, data=litmeta, type="Rosenberg")
+fsn(yi, vi, data=litmeta, type="Rosenthal")
+```
+
+## Statistical analysis (Hypotehssis H1)
+
+Let's fit random-effects models to some subsets
+
+
+### Create data subsets 
+#### Estimated effect size based on the fauna status
+
+We used the function *rma()* from metafor to estimate the effect size by fitting moderators.
+
+```{r}
+res.m <- rma(yi, vi, data = litmeta, subset = (Fauna_available=="present"))
+res.n <- rma(yi, vi, data = litmeta, subset = (Fauna_available=="absent"))
+random_m <- rma(yi = yi, vi = vi, method = "REML", data = litmeta)
+res.m
+res.n
+```
+
+##### Forest plot 
+
+```{r}
+estimates <- c(coef(res.m), coef(res.n), coef(random_m))
+variances <- c(vcov(res.m), vcov(res.n), vcov(random_m))
+labels <- c("Present (243)", "Absent (504)", "Overall (867)")
+forest(estimates, variances, slab=labels,col="black", header = "Fauna status",pch = 19, cex=2,xlab = "Effect size (ln(RR))", psize = 1.5)
+```
+
+We can also use ggplot2 package to plot the above forest plot. This gives more flexibility in graph plotting and leads to better visual impact 
+
+```{r}
+dat <- data.frame(
+  label = c("Fauna     (243)
+  present            ", "Fauna     (504)
+  absent             ", "Overall    (867)"),
+  point_est = c(0.0376,-0.0225, -0.0061),
+  lb_ci = c(0.0098,-0.0319 , -0.0187),
+  ub_ci = c(0.0655,-0.0131, 0.0066),
+  group = c(1,2,3))
+#require(dplyr)
+#dat<- dat %>% mutate(label = factor(label), 
+ #             label = factor(label, levels = rev(levels(label))))
+dat$label <- factor(dat$label, levels = dat$label)
+plot1 <- ggplot(dat, aes(x=point_est, y=label))  +
+  geom_point(size=5) + scale_y_discrete(limits = rev(levels(dat$label)))+ geom_vline(xintercept=0, color="black", linetype="dashed", alpha=.5) +
+  geom_errorbarh(aes(xmin=lb_ci, xmax=ub_ci), height=.2) + theme(legend.position="none") +
+  ylab("Fauna status") + xlab("Effect size (ln(RR))") + theme(text = element_text(size = 14,face="bold"), panel.background = element_blank(),
+                                                   panel.grid.major = element_blank(), 
+                                                   panel.grid.minor = element_blank(),
+                                                   axis.line = element_line(colour = "black"),
+                                                   panel.border = element_rect(colour = "black", fill=NA, size=1.5)) +  theme(axis.text = element_text(family = "palatino", colour = "black", size = (12)))
+plot1
+
+```
+
+#### Fauna functional calssification based on size 
+Here we classified the data points based on the mesh size used into different functional groups of fauna. microfauna <1.0 mm, mesofauna 1mm-2mm and macrofauna >2mm
+
+```{r}
+res.micro <- rma(yi, vi, data = litmeta, subset = (Fauna_group=="microfauna"))
+res.meso <- rma(yi, vi, data = litmeta, subset = (Fauna_group=="mesofauna"))
+res.macro <- rma(yi, vi, data = litmeta, subset = (Fauna_group=="macrofauna"))
+res.micro
+res.meso
+res.macro
+```
+```{r}
+estimates <- c(coef(res.micro), coef(res.meso), coef(res.macro),coef(random_m))
+variances <- c(vcov(res.micro), vcov(res.meso), vcov(res.macro),vcov(random_m))
+labels <- c("Microfauna", "Mesofauna", "Macrofauna","Overall (867)")
+forest(estimates, variances, slab=labels, col="black", header = "Fauna groups",xlab='Effect size (ln(RR))',pch=19, cex=2, psize = 1.5)
+```
+
+The effect size for different fauna group is not significant different from each other.
+This might be due to the differences in samples sizes.
+
+#### Estimated effect size based on the climatic regions
+
+```{r}
+res.temperate <- rma(yi, vi, data=litmeta, subset=climatic_region=="Temperate")
+res.tropics <- rma(yi, vi, data=litmeta, subset=climatic_region=="Tropics")
+res.subtropics <- rma(yi, vi, data=litmeta, subset=climatic_region=="Sub-tropics")
+res.temperate
+res.tropics
+res.subtropics
+```
+
+##### Forest plot for climatic regions 
+
+```{r}
+estimates <- c(coef(res.temperate), coef(res.tropics), coef(res.subtropics),coef(random_m))
+variances <- c(vcov(res.temperate), vcov(res.tropics), vcov(res.subtropics),vcov(random_m))
+labels <- c("Temperate (504)", "Tropics (120)", "Subtropics (243)","Overall (867)")
+forest(estimates, variances, slab=labels, col="black", header = "Climatic region",xlab='Effect size (ln(RR))',pch=19, cex=2, psize = 1.5)
+```
+
+Plot the above forest plot using ggplot2 
+
+```{r}
+dat7 <- data.frame(
+  label = c("Temperate (504)", "Subtropics (243)", "Tropics (120)"),
+  point_est = c(-0.0359 ,0.0193, 0.0523),
+  lb_ci = c(-0.0469,-0.0124,0.0168),
+  ub_ci = c( -0.0248  ,0.0509,  0.0878 ))
+dat7$label <- factor(dat7$label, levels = dat7$label)
+plot7 <- ggplot(dat7, aes(x=point_est, y=label)) +
+  geom_point(size=5) + scale_y_discrete(limits = rev(levels(dat7$label))) + geom_vline(xintercept=0, color="black", linetype="dashed", alpha=.5) +
+  geom_errorbarh(aes(xmin=lb_ci, xmax=ub_ci), height=.2) +
+  ggtitle("b")+
+  ylab("Climatic regions") + xlab("Effect size (ln(RR))") + theme(text = element_text(size = 14,face="bold"), panel.background = element_blank(),
+                                                                                 panel.grid.major = element_blank(), 
+                                                                                 panel.grid.minor = element_blank(),
+                                                                                 axis.line = element_line(colour = "black"),
+                                                                                 panel.border = element_rect(colour = "black", fill=NA, size=1.5)) +  theme(axis.text = element_text(family = "palatino", colour = "black", size = (12)))
+plot7
+```
+
+#### Estimated effect size based on the ecosystem types 
+
+```{r}
+res.forest <- rma(yi, vi, data = litmeta, subset = (eco_type=="Forest"))
+res.grassland <- rma(yi, vi, data = litmeta, subset = (eco_type=="Grassland"))
+res.plantation <- rma(yi, vi, data = litmeta, subset = (eco_type=="Plantation"))
+res.shrubland <- rma(yi, vi, data = litmeta, subset = (eco_type=="Shrubland"))
+res.forest
+res.grassland
+res.plantation
+res.shrubland
+```
+
+##### Forest plot
+
+```{r}
+estimates <- c(coef(res.grassland),coef(res.shrubland), coef(res.forest),coef(res.plantation))
+variances <- c(vcov(res.grassland),vcov(res.shrubland), vcov(res.forest),vcov(res.plantation))
+labels <- c("Grassland (61)","Shrubland (56)","Forest (594)",  "Plantation (156)")
+forest(estimates, variances, slab=labels,col= "black" ,header = "Ecosysytem types",pch=19,cex=2,xlab = "Effect Size (ln(RR))",psize = 1.8)
+
+```
+
+Plot the above with ggplot.
+
+```{r}
+dat2 <- data.frame(
+  label = c("Grassland  (61)", "Shrubland  (56)", "Forest  (594)","Plantation  (156)"),
+  point_est = c(0.0848, 0.0236, -0.0079,-0.0531),
+  lb_ci = c(0.1550,-0.0027, -0.0218,-0.0686 ),
+  ub_ci = c(0.0147,0.0499,  0.0059,-0.0376 )
+)
+dat2$label <- factor(dat2$label, levels = dat2$label)
+plot2 <- ggplot(dat2, aes(x=point_est, y=label)) +
+  geom_point(size=5)  + scale_y_discrete(limits = rev(levels(dat2$label)))+ geom_vline(xintercept=0, color="black", linetype="dashed", alpha=.5) + 
+  geom_errorbarh(aes(xmin=lb_ci, xmax=ub_ci), height=.2) +
+  ggtitle("c")+
+  ylab("Ecosystem type") + xlab("Effect size (ln(RR))") + theme(text = element_text(size = 14,face="bold"), panel.background = element_blank(),
+                                                   panel.grid.major = element_blank(), 
+                                                   panel.grid.minor = element_blank(),
+                                                   axis.line = element_line(colour = "black"),
+                                                   panel.border = element_rect(colour = "black", fill=NA, size=1.5)) +  theme(axis.text = element_text(family = "palatino", colour = "black", size = (12)))
+plot2
+
+```
+
+#### Estimated ffect size based on the incubation time 
+
+
+```{r}
+six_months<- rma(yi, vi, data = litmeta, subset = (Duration_period=="short"))
+one_year <- rma(yi, vi, data = litmeta, subset = (Duration_period=="medium"))
+two_years <- rma(yi, vi, data = litmeta, subset = (Duration_period=="long"))
+above_two_years <- rma(yi, vi, data = litmeta, subset = (Duration_period=="very  long"))
+six_months
+one_year
+two_years
+above_two_years
+```
+
+##### Forest plot
+
+```{r}
+estimates <- c(coef(six_months), coef(one_year), coef(two_years),coef(above_two_years))
+variances <- c(vcov(six_months), vcov(one_year), vcov(two_years),vcov(above_two_years))
+labels <- c("< 6 months (310)", "6-12 months (144)", "12-24 months (225)","> 24 months (188)")
+forest(estimates, variances, slab=labels,col= "black" ,header = "Incubation period",pch=19,cex=2,xlab = "Effect Size (ln(RR))",psize = 1.5)
+```
+
+Plot the above forest plot using ggplot2 
+
+```{r}
+dat5 <- data.frame(
+  label = c("< 6  (310)", "6-12  (144)", "12-24  (225)","> 24  (188)"),
+  point_est = c(0.0159 ,-0.0251, -0.0300 ,0.0049 ),
+  lb_ci = c(-0.0073,-0.0471,-0.0429,-0.0278),
+  ub_ci = c(0.0392 ,-0.0031,  -0.0172 , 0.0376))
+dat5$label <- factor(dat5$label, levels = dat5$label)
+plot5 <- ggplot(dat5, aes(x=point_est, y=label)) +
+  geom_point(size=5) + scale_y_discrete(limits = rev(levels(dat5$label))) + geom_vline(xintercept=0, color="black", linetype="dashed", alpha=.5) +
+  geom_errorbarh(aes(xmin=lb_ci, xmax=ub_ci), height=.2) +
+  ylab("Experiment duration (months)") + xlab("Effect size (ln(RR))") + theme(text = element_text(size = 14,face="bold"), panel.background = element_blank(),
+                                                   panel.grid.major = element_blank(), 
+                                                   panel.grid.minor = element_blank(),
+                                                   axis.line = element_line(colour = "black"),
+                                                   panel.border = element_rect(colour = "black", fill=NA, size=1.5)) +  theme(axis.text = element_text(family = "palatino", colour = "black", size = (12)))
+
+plot5
+
+```
+
+#### Estimated effect size based on litter species richness levels
+
+```{r}
+two_species<- rma(yi, vi, data = litmeta, subset = (species_richness == "two"))
+three_species<- rma(yi, vi, data = litmeta, subset = (species_richness == "three"))
+four_species <- rma(yi, vi, data = litmeta, subset = (species_richness == "four"))
+five_species<- rma(yi, vi, data = litmeta, subset = (species_richness == "five"))
+six_species <- rma(yi, vi, data = litmeta, subset = (species_richness == "six"))
+twelve_species <- rma(yi, vi, data = litmeta, subset = (species_richness == "twelve"))
+two_species
+three_species
+four_species
+five_species
+six_species
+twelve_species
+```
+
+##### Forest plot
+
+```{r}
+estimates <- c(coef(two_species), coef(three_species), coef(four_species),coef(five_species), coef(six_species), coef(twelve_species))
+variances <- c(vcov(two_species), vcov(three_species), vcov(four_species),vcov(five_species),vcov(six_species),vcov(twelve_species))
+labels <- c("Two species (609)", "Three species (127)", "Four species (43)","Five species (33)","Six species (51)","Twelve species (4)")
+forest(estimates, variances, slab=labels,col= "black" ,header = "Species richness",pch=19,cex=2,xlab = "Effect Size (ln(RR))",psize = 1.5)
+```
+
+
+Plot the above forest plot using ggplot2
+
+```{r}
+dat3 <- data.frame(
+  label = c("Two  (609)", "Three  (127)", "Four  (43)","Five  (31)", "Six  (51)", "Twelve  (4)"),
+  point_est = c(0.0023 , -0.0361 ,  0.0200,-0.1938  ,  -0.0054,0.2516 ),
+  lb_ci = c(-0.0126,-0.0682 , -0.0348,-0.3077,  -0.0407,-0.0716 ),
+  ub_ci = c(0.0171,-0.0040,  0.0749 ,-0.0799, 0.0298, 0.5748),
+  group = c(2,3,4,5,6,12)
+)
+dat3$label <- factor(dat3$label, levels = dat3$label)
+plot3 <- ggplot(dat3, aes(x=point_est, y=label, shape=as.factor(group))) +
+  scale_shape_manual(values = c(16, 17,18,25,21,22))+ theme(legend.position="none") +
+  geom_point(size=5) + scale_y_discrete(limits = rev(levels(dat3$label))) + geom_vline(xintercept=0, color="black", linetype="dashed", alpha=.5) +
+  geom_errorbarh(aes(xmin=lb_ci, xmax=ub_ci), height=.2) +
+  ggtitle("a")+
+  ylab("Species richness") + xlab("Effect size (ln(RR))") + theme(text = element_text(size = 14,face="bold"), panel.background = element_blank(),
+                                                   panel.grid.major = element_blank(), 
+                                                   panel.grid.minor = element_blank(),
+                                                   axis.line = element_line(colour = "black"),
+                                                   panel.border = element_rect(colour = "black", fill=NA, size=1.5)) +  theme(axis.text = element_text(family = "palatino", colour = "black", size = (12)))
+plot3
+
+```
+
+#### Estimated effect size based on the precipitation levels 
+
+```{r}
+pl<-rma(yi, vi, data = litmeta, subset = (precipitation_levels=="low"))
+pm<-rma(yi, vi, data = litmeta, subset = (precipitation_levels=="medium"))
+ph<-rma(yi, vi, data = litmeta, subset = (precipitation_levels=="high"))
+summary(pl)
+summary(pm)
+summary(ph)
+```
+
+##### Forest plot
+
+```{r}
+estimates <- c(coef(pl), coef(pm), coef(ph),coef(random_m))
+variances <- c(vcov(pl), vcov(pm), vcov(ph), vcov(random_m))
+labels <- c("< 1000  (486)", "1000-2000  (287)", "> 2000 (94)","Overall (867)")
+forest(estimates, variances, slab=labels,header = "Precipitation mm/year ",col="black",xlab="Effect size (ln(RR))",pch=19, cex=2, psize = 1.8)
+
+```
+
+### Precipitation and soil fauna analysis (H2)
+
+To test the 2nd hypothesis that In low precipitation or drought environments, soil fauna effects on decomposition will be more predominant in the mixed species litter than single species litter. 
+Here we create a new data-frames based on the precipitation levels and run a metaregression using fauna data as the moderator for the three levels of precipitation.
+
+
+#### Create new data sets
+
+```{r}
+low_precipt<- litmeta[litmeta$precipitation_levels == "low", ]
+high_precipt<- litmeta[litmeta$precipitation_levels == "high", ]
+medium_precipt<- litmeta[litmeta$precipitation_levels == "medium", ]
+dim(low_precipt)
+dim(medium_precipt)
+dim(high_precipt)
+low_precipt2<- low_precipt[low_precipt$Fauna_available == "present", ]
+high_precipt2<- high_precipt[high_precipt$Fauna_available == "present", ]
+medium_precipt2<- medium_precipt[medium_precipt$Fauna_available == "present", ]
+
+dim(low_precipt2)
+dim(high_precipt2)
+dim(medium_precipt2)
+```
+
+#### Calculate the estimate for each new data set
+
+We used random effect model to do so
+
+##### Low precipitation
+
+```{r}
+rlp <- rma(yi = yi, vi = vi, method = "REML", data = low_precipt)
+summary(rlp)
+```
+
+##### Medium precipitation
+
+```{r}
+rmep <- rma(yi = yi, vi = vi, method = "REML", data = medium_precipt)
+summary(rmep)
+```
+
+##### High precipitation
+
+```{r}
+rhi <- rma(yi = yi, vi = vi, method = "REML", data = high_precipt)
+summary(rhi)
+
+```
+
+#### Meta regression on each data set
+
+we performed a meta-regression using fauna as the main moderator for each data.
+This is to see how fauna effect changes with the precipitation levels.
+
+##### Estimate of effect size
+
+```{r}
+mhip<- rma (yi = yi, vi = vi, mod = ~Fauna_available, method = "REML", data = high_precipt )
+mmep<- rma (yi = yi, vi = vi, mod = ~Fauna_available, method = "REML", data = medium_precipt )
+mlop<- rma (yi = yi, vi = vi, mod = ~Fauna_available, method = "REML", data = low_precipt)
+summary (mhip)
+summary (mmep)
+summary (mlop)
+```
+
+From the metaregression results as the precipitation reduces the impact of soil fauna availability on the overall effect size increases.
+
+##### Fauna effect on different precipitation levels
+
+```{r}
+lowpre_fauna<-rma(yi, vi, data = low_precipt, subset = (Fauna_available=="present"))
+lowpre_none<-rma(yi, vi, data = low_precipt, subset = (Fauna_available=="absent"))
+mepre_fauna<-rma(yi, vi, data = medium_precipt, subset = (Fauna_available=="present"))
+mepre_none<-rma(yi, vi, data = medium_precipt, subset = (Fauna_available=="absent"))
+hipre_fauna<-rma(yi, vi, data = high_precipt, subset = (Fauna_available=="present"))
+hipre_none<-rma(yi, vi, data = high_precipt, subset = (Fauna_available=="absent"))
+lowpre_fauna
+mepre_fauna
+hipre_fauna
+lowpre_none
+mepre_none
+hipre_none
+```
+
+##### Forest plot
+
+```{r}
+estimates <- c(coef(pl), coef(lowpre_fauna),coef(lowpre_none),coef(pm),coef(mepre_fauna),coef(mepre_none), coef(ph),coef(hipre_fauna),coef(hipre_none))
+variances <- c(vcov(pl), vcov(lowpre_fauna),vcov(lowpre_none),vcov(pm),vcov(mepre_fauna),vcov(mepre_none),vcov(ph),vcov(hipre_fauna),vcov(hipre_none))
+labels <- c("<1000 mm/year (486)","      Fauna present","      Fauna absent", "1000-2000 mm/year (287)","      Fauna presence", "      Fauna absent",">2000 mm/year (94)","      Fauna presence","      Fauna absent")
+forest(estimates, variances, slab=labels,header = "Precipitation and fauna",xlab = "Effect size (ln(RR))", cex=2,pch = 19, psize=1.8)
+
+estimates <- c(coef(pl), coef(lowpre_fauna),coef(pm),coef(mepre_fauna), coef(ph),coef(hipre_fauna))
+variances <- c(vcov(pl), vcov(lowpre_fauna),vcov(pm),vcov(mepre_fauna), vcov(ph),vcov(hipre_fauna))
+labels <- c("<1000 mm/year (486)","      Soil fauna", "1000-2000 mm/year (287)","      Soil fauna", ">2000 mm/year (94)","      Soil fauna")
+forest(estimates, variances, slab=labels,header = "Precipitation and fauna",xlab = "Effect size (ln(RR))", cex=2,pch = 19, psize=1.5)
+```
+
+Plot precipitation and fauna with ggplot2. 
+
+```{r}
+dat6 <- data.frame(
+  label = c("<1000 mm/year (486)      ","Fauna present (140)", "Fauna absent (346) ","1000-2000 mm/year (287)      ","Fauna present (81) ",
+            "Fauna absent (206)", ">2000 mm/year (94)      ","Fauna present (53)","Fauna absent (41) "),
+  point_est = c(-0.0077,0.0480,-0.0257, -0.0177,0.0414,-0.0372, 0.0198  , 0.0065,0.0385),
+  lb_ci = c(-0.0264,0.0052,-0.0379, -0.0371,-0.0100, -0.0530, -0.0093,-0.0403,0.0123),
+  ub_ci = c(0.0110,0.0907,  -0.0135, 0.0017, 0.0929,-0.0213, 0.0489, 0.0533,0.0646 ),
+  group = c(1,2,3,1,2,3,1,2,3),
+  precip_level= c(1,1,1,2,2,2,3,3,3)
+)
+dat6$label <- factor(dat6$label, levels = dat6$label)
+as.factor(dat6$group)
+plot6 <- ggplot(dat6, aes(x=point_est, y=label, shape=as.factor(group),color=as.factor(precip_level))) + scale_shape_manual(values = c(10, 16, 17))+
+  scale_color_brewer(palette="Dark2")+
+  geom_hline(yintercept = c(3.5,6.5),color="black", linetype="dashed", alpha=.7)+
+  theme(legend.position="none") +
+  geom_point(size=5) + scale_y_discrete(limits = rev(levels(dat6$label))) + geom_vline(xintercept=0, color="black", linetype="dashed", alpha=.5) +
+  geom_errorbarh(aes(xmin=lb_ci, xmax=ub_ci), height=.2) +
+  ggtitle("a")+
+  ylab("Precipitation level and fauna status") + xlab("Effect size (ln(RR))") + theme(text = element_text(size = 14,face="bold"), panel.background = element_blank(),
+                                                   panel.grid.major = element_blank(), 
+                                                   panel.grid.minor = element_blank(),
+                                                   axis.line = element_line(colour = "black"),
+                                                   panel.border = element_rect(colour = "black", fill=NA, size=1.5)) +  theme(axis.text = element_text(family = "palatino", colour = "black", size = (12)))
+plot6
+
+```
+
+visualize the relationship between soil fauna status and annual precipitation in mm
+Only the fauna status that shows significant effect is shown. This the Figure S2 in the supplementary material.
+
+```{r, FigureS2}
+library(ggpubr)
+sp <- ggscatter(litmeta, x = "Annual_precip", y = "yi",
+                add = "reg.line",               # Add regression line
+                conf.int = TRUE,                # Add confidence interval
+                color = "Fauna_available", palette = c("#00AFBB", "#FC4E07") , # Color by groups "cyl"
+                                  # Change point shape by groups "cyl"
+                legend.title = "Fauna status", alpha=0.6)+
+  stat_cor(aes(color = Fauna_available), label.x = 3) +      # Add correlation coefficient 
+  ylab("ln(RR)") +  scale_y_continuous(limits = c(-1, 1))+
+  xlab("Annual precipitation (mm)") + 
+  theme(text = element_text(size = 14,face="bold"), panel.background = element_blank(),panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),legend.position = "top",
+        axis.line = element_line(colour = "black")) + 
+  theme(axis.text = element_text(family = "palatino", colour = "black", size = (12))) + guides(colour = guide_legend(label.position = "left", label.hjust = 1))
+
+sp+ geom_smooth(method = "lm", data=subset(litmeta,Fauna_available=="absent"))
+#path<- setwd()
+
+```
+
+Using ggplot to visualize the relationship between soil fauna and precipitation. 
+we only show the linear regression when its positive.
+```{r}
+faunaprecipitation<- ggplot(litmeta) +
+  aes(x = Annual_precip, y = yi, color = Fauna_available) + scale_y_continuous(limits = c(-1, 1))+
+  geom_point(size= 2, alpha=0.6) + scale_color_manual(values = c("absent" = "orange","present" = "blue")) + 
+                                                             geom_smooth(method = "lm", data=subset(litmeta,Fauna_available=="absent"))+ ylab("ln(RR)") + 
+  xlab("Annual precipitation (mm/year)") + 
+  theme(text = element_text(size = 14,face="bold"), panel.background = element_blank(),panel.grid.major = element_blank(), 
+  panel.grid.minor = element_blank(),legend.position = "top",
+  axis.line = element_line(colour = "black")) + labs(color = "Fauna status")+ 
+  theme(axis.text = element_text(family = "palatino", colour = "black", size = (12))) + guides(colour = guide_legend(label.position = "left", label.hjust = 1))
+
+faunaprecipitation
+
+```
+
+See the relationship of fauna status and incubation period.
+
+```{r}
+library(ggpubr)
+boxfauna<- ggplot(litmeta, aes(y=Time_Days, x=Fauna_available)) + 
+  geom_boxplot()+ylab("Time in days") + 
+  xlab("Fauna status ") + stat_compare_means(paired = FALSE)+
+  theme(text = element_text(size = 14,face="bold"), panel.background = element_blank(),panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),legend.position = "top",
+        axis.line = element_line(colour = "black")) + labs(color = "Fauna status")+ 
+  theme(axis.text = element_text(family = "palatino", colour = "black", size = (12))) + guides(colour = guide_legend(label.position = "left", label.hjust = 1))
+boxfauna
+path<- getwd()
+ggsave(filename="fig s5.png", plot=boxfauna, device="png",
+       path=path, height=5, width=5, units="in", dpi=300)
+```
+
+
+### Effect size for fauna inclusion by climatic region
+
+We did a metaregression showing how availability of fauna affects the effect sizes by climatic region
+here we create new data frame based on the climatic region
+
+#### Create new data set
+
+```{r}
+tropics<- litmeta[litmeta$climatic_region == "Tropics", ]
+subtropics<- litmeta[litmeta$climatic_region == "Sub-tropics", ]
+temperate<- litmeta[litmeta$climatic_region == "Temperate", ]
+dim(tropics)
+dim(subtropics)
+dim(temperate)
+```
+
+#### Random effect models
+
+Here we do a random effect model for each climatic region  
+
+```{r}
+#tropical regions
+trop <- rma(yi = yi, vi = vi, method = "REML", data = tropics)
+summary(trop)
+#subtropic regions
+sub <- rma(yi = yi, vi = vi, method = "REML", data = subtropics)
+summary(sub)
+#temperate region
+temp <- rma(yi = yi, vi = vi, method = "REML", data = temperate)
+summary(temp)
+```
+
+
+```{r}
+metrop<- rma (yi = yi, vi = vi, mod = ~Fauna_available, method = "REML", data = tropics )
+metsub<- rma (yi = yi, vi = vi, mod = ~Fauna_available, method = "REML", data = subtropics )
+mettemp<- rma (yi = yi, vi = vi, mod = ~Fauna_available, method = "REML", data = temperate)
+summary(metrop)
+summary(metsub)
+summary(mettemp)
+```
+
+
+#### Effect sizes based on the fauna status in diffrent climatic regions
+
+```{r}
+tr_fauna<-rma(yi, vi, data = tropics, subset = (Fauna_available=="present"))
+sub_fauna<-rma(yi, vi, data = subtropics, subset = (Fauna_available=="present"))
+temp_fauna<-rma(yi, vi, data = temperate, subset = (Fauna_available=="present"))
+tr_fauna
+sub_fauna
+temp_fauna
+tr_fauna_none<-rma(yi, vi, data = tropics, subset = (Fauna_available=="absent"))
+sub_fauna_none<-rma(yi, vi, data = subtropics, subset = (Fauna_available=="absent"))
+temp_fauna_none<-rma(yi, vi, data = temperate, subset = (Fauna_available=="absent"))
+tr_fauna_none
+sub_fauna_none
+temp_fauna_none
+
+```
+
+#### Forest plot
+
+```{r}
+estimates <- c(coef(trop), coef(tr_fauna),coef(tr_fauna_none), coef(sub),coef(sub_fauna),coef(sub_fauna_none),coef(temp), coef(temp_fauna),coef(temp_fauna_none), coef(random_m))
+variances <- c(vcov(trop), vcov(tr_fauna),vcov(tr_fauna_none), vcov(sub),vcov(sub_fauna),vcov(sub_fauna_none),vcov(temp), vcov(temp_fauna),vcov(temp_fauna_none), vcov(random_m))
+labels <- c("Tropics (120)","      Soil fauna","fauna absent","Subtropics (243)", "      Soil fauna","Fauna absent", "Temperate (504)","      Soil fauna","Faun a absent","Overall climatic region")
+forest(estimates, variances, slab=labels,header = "Climatic region and fauna",col ="black", pch=19,xlab="Effect size", cex=2, psize = 1.5)
+
+```
+
+We used ggplot to plot the above plot
+
+```{r}
+dat9 <- data.frame(
+  label = c("Tropics (120)","Fauna present (140)", "Fauna absent (346) ","Subtropics (243)","Fauna present (81) ",
+            "Fauna absent (206)", "Temperate (504)","Fauna present (53)","Fauna absent (41) "),
+  point_est = c(0.0523, 0.0548 ,0.0487, 0.0193,0.1938 ,-0.0411, -0.0359  , -0.0560 ,-0.0239),
+  lb_ci = c(0.0168, 0.0100 ,-0.0100 ,  -0.0124,0.1147, -0.0601 , -0.0469,-0.0823 , -0.0346 ),
+  ub_ci = c(0.0878,0.0996 ,  0.0875, 0.0509 , 0.2729,-0.0222, -0.0248 , -0.0298,-0.0132 ),
+  group = c(1,2,3,1,2,3,1,2,3),
+  region= c(1,1,1,2,2,2,3,3,3)
+)
+dat9$label <- factor(dat9$label, levels = dat9$label)
+as.factor(dat9$group)
+plot9 <- ggplot(dat9, aes(x=point_est, y=label, shape=as.factor(group),color=as.factor(region))) +scale_shape_manual(values = c(10, 16, 17))+
+  theme(legend.position="none") +scale_color_brewer(palette="Dark2")+
+  geom_point(size=5) + scale_y_discrete(limits = rev(levels(dat9$label))) + geom_vline(xintercept=0, color="black", linetype="dashed", alpha=.5) +
+  geom_hline(yintercept = c(3.5,6.5),color="black", linetype="dashed", alpha=.7)+
+  geom_errorbarh(aes(xmin=lb_ci, xmax=ub_ci), height=.2) +
+  ggtitle("b")+
+  ylab("Climatic region and fauna status") + xlab("Effect size (ln(RR))") + theme(text = element_text(size = 14,face="bold"), panel.background = element_blank(),
+                                                   panel.grid.major = element_blank(), 
+                                                   panel.grid.minor = element_blank(),
+                                                   axis.line = element_line(colour = "black"),
+                                                   panel.border = element_rect(colour = "black", fill=NA, size=1.5)) +  theme(axis.text = element_text(family = "palatino", colour = "black", size = (12)))
+plot9
+
+```
+
+
+
+### Fauna effects in diffrent ecosystem types
+
+#### Create new data sets
+
+First we create a data frame for each of the ecosystem type
+
+```{r}
+forest<- litmeta[litmeta$eco_type == "Forest", ]
+grassland<- litmeta[litmeta$eco_type == "Grassland", ]
+plantation<- litmeta[litmeta$eco_type == "Plantation", ]
+shrubland<- litmeta[litmeta$eco_type == "Shrubland", ]
+dim(forest)
+dim(grassland)
+dim(plantation)
+dim(shrubland)
+```
+
+#### Calculate the effect size based on the fauna status per ecosystem
+
+```{r}
+f_fauna<-rma(yi, vi, data = forest, subset = (Fauna_available=="present"))
+g_fauna<-rma(yi, vi, data = grassland, subset = (Fauna_available=="present"))
+p_fauna<-rma(yi, vi, data = plantation, subset = (Fauna_available=="present"))
+s_fauna<-rma(yi, vi, data = shrubland, subset = (Fauna_available=="present"))
+f_fauna
+g_fauna
+p_fauna
+s_fauna
+
+f_fauna_none<-rma(yi, vi, data = forest, subset = (Fauna_available=="absent"))
+g_fauna_none<-rma(yi, vi, data = grassland, subset = (Fauna_available=="absent"))
+p_fauna_none<-rma(yi, vi, data = plantation, subset = (Fauna_available=="absent"))
+s_fauna_none<-rma(yi, vi, data = shrubland, subset = (Fauna_available=="absent"))
+f_fauna_none
+g_fauna_none
+p_fauna_none
+s_fauna_none
+```
+
+
+#### Forest plot
+
+We plot the forest plot
+
+```{r}
+estimates <- c(coef(res.grassland),coef(g_fauna),coef(g_fauna_none), coef(res.shrubland), coef(s_fauna),coef(s_fauna_none),coef(res.forest), coef(f_fauna),coef(f_fauna_none),coef(res.plantation), coef(p_fauna),coef(p_fauna))
+variances <- c(vcov(res.grassland), vcov(g_fauna),vcov(g_fauna_none),vcov(res.shrubland),vcov(s_fauna),vcov(s_fauna_none),vcov(res.forest),vcov(f_fauna),vcov(f_fauna_none),vcov(res.plantation), vcov(p_fauna), vcov(p_fauna_none))
+labels <- c("Grass-land","fauna present","fauna absent","Shrubland","fauna present","fauna absent","Forest","fauna present","fauna absent","Plantation","fauna present","fauna absent")
+forest(estimates, variances, slab=labels,header = "Fauna effect in ecosystems",col ="black",xlab = "Effect size", cex=2,pch = 19, psize=1.5)
+```
+
+Manually plot the above forest plots using ggplot since its easier to work on the presentability of the plot.
+```{r}
+dat10 <- data.frame(
+  labels <- c("Grassland (61)","Fauna present (15)","Fauna absent (46)","Shrubland (56)","Fauna present (7)","Fauna absent (49)","Forest (594)","Fauna present (203)","Fauna absent (391)","Plantation (156)","Fauna present (49)","Fauna absent (107)"),
+  point_est = c( 0.0848 , 0.4745  ,-0.0368, 0.0236,-0.0037, 0.0268,-0.0079,0.0281,0.0010, -0.0531,-0.0549,-0.0562   ),
+  lb_ci = c(0.0147,  0.3380 ,-0.0610 , -0.0027,-0.0349 ,-0.0032,-0.0218,-0.0003,-0.0014,-0.0686,-0.0840,-0.0696     ),
+  ub_ci = c(0.1550,0.6109  ,  -0.0127, 0.0499 , 0.0275, 0.0568, 0.0059,0.0565,0.0033,-0.0376,  -0.0258, -0.0427 ),
+  group = c(1,2,3,1,2,3,1,2,3,1,2,3),
+  ecosystem= c(1,1,1,2,2,2,3,3,3,4,4,4)
+)
+dat10$label <- factor(dat10$label, levels = dat10$label)
+as.factor(dat10$group)
+plot10 <- ggplot(dat10, aes(x=point_est, y=label, shape=as.factor(group), color=as.factor(ecosystem)))  + scale_shape_manual(values = c(10, 16, 17))+
+  scale_color_brewer(palette="Dark2")+theme(legend.position="none") +
+  geom_point(size=5) + scale_y_discrete(limits = rev(levels(dat10$label))) + geom_vline(xintercept=0, color="black", linetype="dashed", alpha=.5) +
+  geom_errorbarh(aes(xmin=lb_ci, xmax=ub_ci), height=.2) +geom_hline(yintercept = c(3.5,6.5,9.5),color="black", linetype="dashed", alpha=.7)+
+  ggtitle("c")+
+  ylab("Ecosystems and fauna status") + xlab("Effect size (ln(RR))") + theme(text = element_text(size = 14,face="bold"), panel.background = element_blank(),
+                                                   panel.grid.major = element_blank(), 
+                                                   panel.grid.minor = element_blank(),
+                                                   axis.line = element_line(colour = "black"),
+                                                   panel.border = element_rect(colour = "black", fill=NA, size=1.5)) +  theme(axis.text = element_text(family = "palatino", colour = "black", size = (12)))
+plot10
+```
+
+#### Model for diffrent ecosystems with fauna availability as the moderator
+
+```{r}
+ffauna<- rma (yi = yi, vi = vi, mod = ~Fauna_available, method = "REML", data = forest )
+gfauna<- rma (yi = yi, vi = vi, mod = ~Fauna_available, method = "REML", data = grassland )
+pfauna<- rma (yi = yi, vi = vi, mod = ~Fauna_available, method = "REML", data = plantation)
+sfauna<- rma (yi = yi, vi = vi, mod = ~Fauna_available, method = "REML", data = shrubland )
+summary(ffauna)
+summary(gfauna)
+summary(pfauna)
+summary(sfauna)
+```
+
+
+
+#### Model with species diversity as a moderator 
+
+##### Species effects in different climatic region
+
+```{r}
+tropics<- litmeta[litmeta$climatic_region == "Tropics", ]
+subtropics<- litmeta[litmeta$climatic_region == "Sub-tropics", ]
+temperate<- litmeta[litmeta$climatic_region == "Temperate", ]
+metropsp<- rma (yi = yi, vi = vi, mod = ~sp_div_in_mixture, method = "REML", data = tropics )
+metsubsp<- rma (yi = yi, vi = vi, mod = ~sp_div_in_mixture, method = "REML", data = subtropics )
+mettempsp<- rma (yi = yi, vi = vi, mod = ~sp_div_in_mixture, method = "REML", data = temperate)
+summary(metropsp)
+summary(metsubsp)
+summary(mettempsp)
+```
+
+##### Species effects in different ecosystems
+
+```{r}
+spforest<- rma (yi = yi, vi = vi, mod = ~sp_div_in_mixture, method = "REML", data = forest )
+spgrassland<- rma (yi = yi, vi = vi, mod = ~sp_div_in_mixture, method = "REML", data = grassland )
+spplantation<- rma (yi = yi, vi = vi, mod = ~sp_div_in_mixture, method = "REML", data = plantation)
+spshrubland<- rma (yi = yi, vi = vi, mod = ~sp_div_in_mixture, method = "REML", data = shrubland )
+summary(spforest)
+summary(spgrassland)
+summary(spplantation)
+summary(spshrubland)
+```
+
+##### Effects size based of species diversity across ecosystems
+
+Here we estimate the effect size based on the species richness levels in different ecosystems 
+
+```{r}
+f_spe_rich2<-rma(yi, vi, data = forest, subset = (species_richness=="two"))
+f_spe_rich3<-rma(yi, vi, data = forest, subset = (species_richness=="three"))
+f_spe_rich4<-rma(yi, vi, data = forest, subset = (species_richness=="four"))
+f_spe_rich5<-rma(yi, vi, data = forest, subset = (species_richness=="five"))
+f_spe_rich6<-rma(yi, vi, data = forest, subset = (species_richness=="six"))
+f_spe_rich12<-rma(yi, vi, data = forest, subset = (species_richness=="twelve"))
+f_spe_rich2
+f_spe_rich3
+f_spe_rich4
+f_spe_rich5
+f_spe_rich6
+f_spe_rich12
+
+s_spe_rich2<-rma(yi, vi, data = shrubland, subset = (species_richness=="two"))
+s_spe_rich3<-rma(yi, vi, data = shrubland, subset = (species_richness=="three"))
+#s_spe_rich4<-rma(yi, vi, data = shrubland, subset = (species_richness=="four")) #k=0
+#s_spe_rich5<-rma(yi, vi, data = shrubland, subset = (species_richness=="five")) #k=0
+#s_spe_rich6<-rma(yi, vi, data = shrubland, subset = (species_richness=="six"))k=0
+#s_spe_rich12<-rma(yi, vi, data = shrubland, subset = (species_richness=="twelve"))#k=0
+s_spe_rich2
+s_spe_rich3
+g_spe_rich2<-rma(yi, vi, data = grassland, subset = (species_richness=="two"))
+g_spe_rich3<-rma(yi, vi, data = grassland, subset = (species_richness=="three"))
+g_spe_rich4<-rma(yi, vi, data = grassland, subset = (species_richness=="four"))
+#g_spe_rich5<-rma(yi, vi, data = grassland, subset = (species_richness=="five"))#k=0
+#g_spe_rich6<-rma(yi, vi, data = grassland, subset = (species_richness=="six"))k=0
+#g_spe_rich12<-rma(yi, vi, data = grassland, subset = (species_richness=="twelve"))k=0
+g_spe_rich2
+g_spe_rich3
+g_spe_rich4
+p_spe_rich2<-rma(yi, vi, data = plantation, subset = (species_richness=="two"))
+p_spe_rich3<-rma(yi, vi, data = plantation, subset = (species_richness=="three"))
+p_spe_rich4<-rma(yi, vi, data = plantation, subset = (species_richness=="four"))
+#p_spe_rich5<-rma(yi, vi, data = plantation, subset = (species_richness=="five"))
+#p_spe_rich6<-rma(yi, vi, data = plantation, subset = (species_richness=="six"))
+#p_spe_rich12<-rma(yi, vi, data = plantation, subset = (species_richness=="twelve"))
+p_spe_rich2
+p_spe_rich3
+p_spe_rich4
+```
+
+##### Forest plot
+
+To visually look at the results, we use of a forest plot
+
+```{r}
+estimates <- c(coef(res.forest),coef(f_spe_rich2), coef(f_spe_rich3), coef(f_spe_rich4),coef(f_spe_rich5), coef(f_spe_rich6),coef(f_spe_rich12),coef(res.shrubland),coef(s_spe_rich2), coef(s_spe_rich3),coef(res.grassland),coef(g_spe_rich2), coef(g_spe_rich3),coef(g_spe_rich4),coef(res.plantation),coef(p_spe_rich2), coef(p_spe_rich3), coef(p_spe_rich4))
+variances <- c(vcov(res.forest),vcov(f_spe_rich2), vcov(f_spe_rich3), vcov(f_spe_rich4),vcov(f_spe_rich5),vcov(f_spe_rich6),vcov(f_spe_rich12), vcov(res.shrubland),vcov(s_spe_rich2), vcov(s_spe_rich3),vcov(res.grassland),vcov(g_spe_rich2), vcov(g_spe_rich3), vcov(g_spe_rich4),vcov(res.plantation),vcov(f_spe_rich2), vcov(f_spe_rich3), vcov(f_spe_rich4))
+labels <- c("Forest","Two (396)", "Three (77)", "Four (33)","Five (33)","Six (51)","Twelve (4)","Shrubland", "Two (47)","Three (9)", "Grassland", "Two (53)","Three (3)","Four (1)", "Plantation", "Two (113)","Three (34)", "Four (9)")
+forest(estimates, variances, slab=labels,col= "black" ,header = "Species richness",pch=19,cex=2,xlab = "Effect Size (ln(RR))",psize=1.5)
+```
+
+We also manually plot the above forest plots using ggplot2.
+
+```{r}
+dat11 <- data.frame(
+  labels <- c("Overall Forest (594)","Two (396)", "Three (77)", "Four (33)","Five (33)","Six (51)","Twelve (4)"," Overall Shrubland (56)", "Two (47)","Three (9)", "Overall Grassland (61)", "Two (53)","Three (3)","Four (1)", "Overall Plantation (156)", "Two (113)","Three (34)", "Four (9)"),
+  point_est = c( -0.0079 ,0.0031, -0.0564,0.0343,-0.1938,-0.0054,0.2516, 0.0236,0.0267,0.0037, 0.0848,0.0413,0.2966,0.8060,-0.0531, -0.0384,-0.0720,-0.0639),
+  lb_ci = c(  -0.0218 ,-0.0146, -0.0909,-0.0039,-0.3077, -0.0407,-0.0716, -0.0027,-0.0036,-0.0441, 0.0147 ,-0.0238,0.0518, 0.8059,-0.0686,-0.0597,-0.1006,-0.0755  ),
+  ub_ci = c(0.0059,0.0207,-0.0219,0.0724,-0.0799, 0.0298,0.5748,0.0499 , 0.0570,0.0515,0.1550, 0.1064,0.5413, 0.8062,-0.0376 ,-0.0170,-0.0435,-0.0523 ),
+  group = c(1,2,3,4,5,6,12,1,2,3,1,2,3,4,1,2,3,4),
+  ecosystem= c(1,1,1,1,1,1,1,2,2,2,3,3,3,3,4,4,4,4)
+)
+dat11$label <- factor(dat11$label, levels = dat11$label)
+as.factor(dat11$group)
+plot11 <- ggplot(dat11, aes(x=point_est, y=label, shape=as.factor(group),color=as.factor(ecosystem))) + 
+  theme(legend.position="none") +scale_shape_manual(values = c(10, 16, 17,18,25,21,22))+scale_color_brewer(palette="Dark2")+
+  geom_point(size=5) + scale_y_discrete(limits = rev(levels(dat11$label))) + geom_vline(xintercept=0, color="black", linetype="dashed", alpha=.5) +
+  geom_errorbarh(aes(xmin=lb_ci, xmax=ub_ci), height=.2) +
+  ggtitle("b")+ geom_hline(yintercept = c(4.5,8.5,11.5),color="black", linetype="dashed", alpha=.7)+
+  ylab("Ecosystems and species richness") + xlab("Effect size (ln(RR))") + theme(text = element_text(size = 14,face="bold"), panel.background = element_blank(),
+                                                                                 panel.grid.major = element_blank(), 
+                                                                                 panel.grid.minor = element_blank(),
+                                                                                 axis.line = element_line(colour = "black"),
+                                                                                 panel.border = element_rect(colour = "black", fill=NA, size=1.5)) +  theme(axis.text = element_text(family = "palatino", colour = "black", size = (12)))
+plot11
+
+```
+
+##### Estimate the effect size at species richness levels in different climatic regions
+
+```{r}
+temp_spe_rich2<-rma(yi, vi, data = temperate, subset = (species_richness=="two"))
+temp_spe_rich3<-rma(yi, vi, data = temperate, subset = (species_richness=="three"))
+temp_spe_rich4<-rma(yi, vi, data = temperate, subset = (species_richness=="four"))
+temp_spe_rich5<-rma(yi, vi, data = temperate, subset = (species_richness=="five"))
+temp_spe_rich6<-rma(yi, vi, data = temperate, subset = (species_richness=="six"))
+temp_spe_rich12<-rma(yi, vi, data = temperate, subset = (species_richness=="twelve"))
+temp_spe_rich2
+temp_spe_rich3
+temp_spe_rich4
+temp_spe_rich5
+temp_spe_rich6
+temp_spe_rich12
+sub_spe_rich2<-rma(yi, vi, data = subtropics, subset = (species_richness=="two"))
+sub_spe_rich3<-rma(yi, vi, data = subtropics, subset = (species_richness=="three"))
+sub_spe_rich4<-rma(yi, vi, data = subtropics, subset = (species_richness=="four"))
+sub_spe_rich5<-rma(yi, vi, data = subtropics, subset = (species_richness=="five"))
+sub_spe_rich6<-rma(yi, vi, data = subtropics, subset = (species_richness=="six"))
+sub_spe_rich2
+sub_spe_rich3
+sub_spe_rich4
+sub_spe_rich5
+sub_spe_rich6
+trop_spe_rich2<-rma(yi, vi, data = tropics, subset = (species_richness=="two"))
+trop_spe_rich3<-rma(yi, vi, data = tropics, subset = (species_richness=="three"))
+trop_spe_rich4<-rma(yi, vi, data = tropics, subset = (species_richness=="four"))
+#trop_spe_rich5<-rma(yi, vi, data = tropics, subset = (species_richness=="five"))#k=0
+trop_spe_rich6<-rma(yi, vi, data = tropics, subset = (species_richness=="six"))
+#trop_spe_rich12<-rma(yi, vi, data = tropics, subset = (species_richness=="twelve"))
+trop_spe_rich2
+trop_spe_rich3
+trop_spe_rich4
+trop_spe_rich6
+
+```
+
+##### Forest plot
+
+We visually look at the results using forest plots
+
+```{r}
+estimates <- c(coef(res.temperate),coef(temp_spe_rich2), coef(temp_spe_rich3), coef(temp_spe_rich4),coef(temp_spe_rich5), coef(temp_spe_rich6),coef(temp_spe_rich12),coef(res.subtropics),coef(sub_spe_rich2), coef(sub_spe_rich3),coef(sub_spe_rich4),coef(sub_spe_rich5), coef(sub_spe_rich6),coef(res.tropics),coef(trop_spe_rich2), coef(trop_spe_rich3),coef(trop_spe_rich4),coef(trop_spe_rich6))
+               
+variances <- c(vcov(res.temperate),vcov(temp_spe_rich2), vcov(temp_spe_rich3), vcov(temp_spe_rich4),vcov(temp_spe_rich5),vcov(temp_spe_rich6),vcov(temp_spe_rich12), vcov(res.subtropics),vcov(sub_spe_rich2), vcov(sub_spe_rich3),vcov(sub_spe_rich4),vcov(sub_spe_rich5),vcov(sub_spe_rich6),vcov(res.tropics),vcov(trop_spe_rich2), vcov(trop_spe_rich3), vcov(trop_spe_rich4),vcov(trop_spe_rich6))
+labels <- c("Temperate","Two (382)", "Three (69)", "Four (11)","Five (32)","Six (6)","Twelve (4)","Subtropics", "Two (150)","Three (27)","Four (22)", "Five (1)", "Six (43)", "Tropics", "Two (77)","Three (31)", "Four (10)","Six (2)")
+forest(estimates, variances, slab=labels,col= "black" ,header = "Species richness",pch=19,cex=2,xlab = "Effect Size (ln(RR))",psize=1.5)
+```
+
+We also manually plot the above forest plots using ggplot2
+
+```{r}
+dat12 <- data.frame(
+ labels <- c("Overall temperate (504)","Two (382)", "Three (69)", "Four (11)","Five (32)","Six (6)","Twelve (4)","Overall Subtropics (243)", "Two (150)","Three (27)","Four (22)", "Five (1)", "Six (43)", "Overall Tropics (120)", "Two (77)","Three (31)", "Four (10)","Six (2)"),
+  point_est = c(-0.0359,-0.0221,-0.0729,-0.0647,-0.2278, -0.0626,0.2516,0.0193,0.0300,-0.0006,0.0303,-0.0662,-0.0018, 0.0523,0.0736,0.0048,0.0310,0.1837),
+  lb_ci = c(-0.0469,-0.0341,-0.1005,-0.0758,-0.3559 ,-0.0911,-0.0716,-0.0124,-0.0101,-0.1205,-0.0595,-0.3145,-0.0329,0.0168,0.0230,-0.0483,-0.0696,-0.0600),
+  ub_ci = c(-0.0248,-0.0102,-0.0453,-0.0536,-0.0996,-0.0341,0.5748, 0.0509, 0.0701,0.1193,0.1202,0.1820,0.0293,0.0878,0.1242,0.0579,0.1317,0.4274),
+  group = c(1,2,3,4,5,6,12,1,2,3,4,5,6,1,2,3,4,6),
+  region= c(1,1,1,1,1,1,1,2,2,2,2,2,2,3,3,3,3,3)
+)
+dat12$label <- factor(dat12$label, levels = dat12$label)
+as.factor(dat12$group)
+plot12 <-  ggplot(dat12, aes(x=point_est, y=label, shape=as.factor(group),color=as.factor(region))) + 
+  theme(legend.position="none") +scale_shape_manual(values = c(10, 16, 17,18,25,21,22))+scale_color_brewer(palette="Dark2")+
+  geom_point(size=5) + scale_y_discrete(limits = rev(levels(dat12$label))) + geom_vline(xintercept=0, color="black", linetype="dashed", alpha=.5) +
+  geom_errorbarh(aes(xmin=lb_ci, xmax=ub_ci), height=.2) +
+  ggtitle("c")+ geom_hline(yintercept = c(5.5,11.5),color="black", linetype="dashed", alpha=.7)+
+  ylab("Climatic regions and species richness") + xlab("Effect size (ln(RR))") + theme(text = element_text(size = 14,face="bold"), panel.background = element_blank(),
+                                                                                 panel.grid.major = element_blank(), 
+                                                                                 panel.grid.minor = element_blank(),
+                                                                                 axis.line = element_line(colour = "black"),
+                                                                                 panel.border = element_rect(colour = "black", fill=NA, size=1.5)) +  theme(axis.text = element_text(family = "palatino", colour = "black", size = (12)))
+plot12
+```
+
+### Effect size based on species ratio in the mixtures(equal or different )
+
+```{r}
+#This chunk can be removed.
+eq <- rma(yi, vi, data = litmeta, subset = (propotions=="equal"))
+uneq<- rma(yi, vi, data = litmeta, subset = (propotions=="different"))
+summary(eq)
+summary(uneq)   
+
+```
+
+### Metaregression for all variables across climatic regions and ecosysytems
+
+#### Carbon nitrogen ratio
+
+```{r}
+cntem<- rma (yi = yi, vi = vi, mod = ~Lit_Car_Nit_ratio, method = "REML", data = temperate )
+cnsub<- rma (yi = yi, vi = vi, mod = ~Lit_Car_Nit_ratio, method = "REML", data = subtropics )
+cntr<- rma (yi = yi, vi = vi, mod = ~Lit_Car_Nit_ratio, method = "REML", data = tropics )
+cnfo<- rma (yi = yi, vi = vi, mod = ~Lit_Car_Nit_ratio, method = "REML", data = forest )
+cngr<- rma (yi = yi, vi = vi, mod = ~Lit_Car_Nit_ratio, method = "REML", data = grassland )
+cnpl<- rma (yi = yi, vi = vi, mod = ~Lit_Car_Nit_ratio, method = "REML", data = plantation)
+cnsh<- rma (yi = yi, vi = vi, mod = ~Lit_Car_Nit_ratio, method = "REML", data = shrubland )
+
+summary(cntem)
+summary(cnsub)
+summary(cntr)
+summary(cnfo)
+summary(cngr)
+summary(cnpl)
+summary(cnsh)
+
+```
+
+#### Litter P content
+
+```{r}
+ptem<-rma (yi = yi, vi = vi, mod = ~Lit_Pho, method = "REML", data = temperate )
+psub<-rma (yi = yi, vi = vi, mod = ~Lit_Pho, method = "REML", data = subtropics )
+ptr<-rma (yi = yi, vi = vi, mod = ~Lit_Pho, method = "REML", data = tropics )
+pfo<-rma (yi = yi, vi = vi, mod = ~Lit_Pho, method = "REML", data = forest )
+pgr<-rma (yi = yi, vi = vi, mod = ~Lit_Pho, method = "REML", data = grassland )
+psh<-rma (yi = yi, vi = vi, mod = ~Lit_Pho, method = "REML", data = shrubland )
+ppl<-rma (yi = yi, vi = vi, mod = ~Lit_Pho, method = "REML", data = plantation )
+
+
+summary(ptem)
+summary(psub)
+summary(ptr)
+summary(pfo)
+summary(pgr)
+summary(ppl)
+summary(psh)# P content not reported for plantations experiments
+```
+
+#### Litter N content
+
+```{r}
+ntem<- rma (yi = yi, vi = vi, mod = ~Lit_Nit, method = "REML", data = temperate )
+nsub<- rma (yi = yi, vi = vi, mod = ~Lit_Nit, method = "REML", data = subtropics )
+ntr<- rma (yi = yi, vi = vi, mod = ~Lit_Nit, method = "REML", data = tropics)
+nfo<- rma (yi = yi, vi = vi, mod = ~Lit_Nit, method = "REML", data = forest )
+ngr<- rma (yi = yi, vi = vi, mod = ~Lit_Nit, method = "REML", data = grassland )
+npl<- rma (yi = yi, vi = vi, mod = ~Lit_Nit, method = "REML", data = plantation)
+nsh<- rma (yi = yi, vi = vi, mod = ~Lit_Nit, method = "REML", data = shrubland )
+
+summary(ntem)
+summary(nsub)
+summary(ntr)
+summary(nfo)
+summary(ngr)
+summary(npl)
+summary(nsh)
+```
+#### Litter Lignin content
+
+```{r}
+ltem<- rma (yi = yi, vi = vi, mod = ~Lit_Lig, method = "REML", data = temperate )
+lsub<- rma (yi = yi, vi = vi, mod = ~Lit_Lig, method = "REML", data = subtropics )
+ltr<- rma (yi = yi, vi = vi, mod = ~Lit_Lig, method = "REML", data = tropics )
+lfo<- rma (yi = yi, vi = vi, mod = ~Lit_Lig, method = "REML", data = forest )
+lgr<- rma (yi = yi, vi = vi, mod = ~Lit_Lig, method = "REML", data = grassland )
+lpl<- rma (yi = yi, vi = vi, mod = ~Lit_Lig, method = "REML", data = plantation )
+lsh<- rma (yi = yi, vi = vi, mod = ~Lit_Lig, method = "REML", data = shrubland )
+
+
+summary(ltem)
+summary(lsub)
+summary(ltr)
+summary(lfo)
+summary(lgr)
+summary(lpl)
+summary(lsh)
+
+```
+
+#### Litter Lignin:N
+
+```{r}
+
+lntem<- rma (yi = yi, vi = vi, mod = ~Lit_Lig_Nit_ratio, method = "REML", data = temperate)
+lnsub<- rma (yi = yi, vi = vi, mod = ~Lit_Lig_Nit_ratio, method = "REML", data = subtropics )
+lntr<- rma (yi = yi, vi = vi, mod = ~Lit_Lig_Nit_ratio, method = "REML", data = tropics )
+lnfo<- rma (yi = yi, vi = vi, mod = ~Lit_Lig_Nit_ratio, method = "REML", data = forest)
+lngr<- rma (yi = yi, vi = vi, mod = ~Lit_Lig_Nit_ratio, method = "REML", data = grassland )
+lnpl<- rma (yi = yi, vi = vi, mod = ~Lit_Lig_Nit_ratio, method = "REML", data = plantation )
+lnsh<- rma (yi = yi, vi = vi, mod = ~Lit_Lig_Nit_ratio, method = "REML", data = shrubland )
+
+
+summary(lntem)
+summary(lnsub)
+summary(lntr)
+summary(lnfo)
+summary(lngr)
+summary(lnpl)
+summary(lnsh)
+
+```
+
+#### Litter C
+
+```{r}
+ctem<- rma (yi = yi, vi = vi, mod = ~Lit_Car, method = "REML", data = temperate )
+csub<- rma (yi = yi, vi = vi, mod = ~Lit_Car, method = "REML", data = subtropics)
+ctr<- rma (yi = yi, vi = vi, mod = ~Lit_Car, method = "REML", data = tropics )
+cfo<- rma (yi = yi, vi = vi, mod = ~Lit_Car, method = "REML", data = forest )
+cgr<- rma (yi = yi, vi = vi, mod = ~Lit_Car, method = "REML", data = grassland )
+cpl<- rma (yi = yi, vi = vi, mod = ~Lit_Car, method = "REML", data = plantation )
+csh<- rma (yi = yi, vi = vi, mod = ~Lit_Car, method = "REML", data = shrubland )
+
+summary(ctem)
+summary(csub)
+summary(ctr)
+summary(cfo)
+summary(cgr)
+summary(cpl)
+summary(csh)#k=0
+
+
+```
+
+#### Fauna available
+
+```{r}
+ftem<- rma (yi = yi, vi = vi, mod = ~Fauna_available, method = "REML", data = temperate)
+fsub<- rma (yi = yi, vi = vi, mod = ~Fauna_available, method = "REML", data = subtropics)
+ftr<- rma (yi = yi, vi = vi, mod = ~Fauna_available, method = "REML", data = tropics )
+ffo<- rma (yi = yi, vi = vi, mod = ~Fauna_available, method = "REML", data = forest )
+fgr<- rma (yi = yi, vi = vi, mod = ~Fauna_available, method = "REML", data = grassland )
+fpl<- rma (yi = yi, vi = vi, mod = ~Fauna_available, method = "REML", data = plantation )
+fsh<- rma (yi = yi, vi = vi, mod = ~Fauna_available, method = "REML", data = shrubland )
+summary(ftem)
+summary(fsub)
+summary(ftr)
+summary(ffo)
+summary(fgr)
+summary(fpl)
+summary(fsh)
+```
+
+#### Species diversity/richness
+
+```{r}
+sptem <- rma (yi = yi, vi = vi, mod = ~sp_div_in_mixture, method = "REML", data = temperate )
+spsub <- rma (yi = yi, vi = vi, mod = ~sp_div_in_mixture, method = "REML", data = subtropics )
+sptr <- rma (yi = yi, vi = vi, mod = ~sp_div_in_mixture, method = "REML", data = tropics )
+spfo <- rma (yi = yi, vi = vi, mod = ~sp_div_in_mixture, method = "REML", data = forest )
+spgr <- rma (yi = yi, vi = vi, mod = ~sp_div_in_mixture, method = "REML", data = grassland )
+sppl <- rma (yi = yi, vi = vi, mod = ~sp_div_in_mixture, method = "REML", data = plantation )
+spsh<- rma (yi = yi, vi = vi, mod = ~sp_div_in_mixture, method = "REML", data = shrubland )
+
+summary(sptem)
+summary(spsub)
+summary(sptr)
+summary(spfo)
+summary(spgr)
+summary(sppl)
+summary(spsh)
+```
+
+#### Incubation period (time in days)
+
+```{r}
+ttem<- rma (yi = yi, vi = vi, mod = ~Time_Days, method = "REML", data = temperate )
+tsub<- rma (yi = yi, vi = vi, mod = ~Time_Days, method = "REML", data = subtropics )
+ttr<- rma (yi = yi, vi = vi, mod = ~Time_Days, method = "REML", data = tropics )
+tfo<- rma (yi = yi, vi = vi, mod = ~Time_Days, method = "REML", data = forest )
+tgr<- rma (yi = yi, vi = vi, mod = ~Time_Days, method = "REML", data = grassland )
+tpl<- rma (yi = yi, vi = vi, mod = ~Time_Days, method = "REML", data = plantation )
+tsh<- rma (yi = yi, vi = vi, mod = ~Time_Days, method = "REML", data = shrubland )
+
+summary(ttem)
+summary(tsub)
+summary(ttr)
+summary(tfo)
+summary(tgr)
+summary(tpl)
+summary(tsh)
+
+```
+
+### Metaregression for the whole data set
+
+#### Metaregression for one parameter at a time for the total observations
+
+```{r}
+#cabron:nitrogen ratio
+m1<- rma (yi = yi, vi = vi, mod = ~Lit_Car_Nit_ratio, method = "REML", data = litmeta )
+#litter P
+m2<-rma (yi = yi, vi = vi, mod = ~Lit_Pho, method = "REML", data = litmeta )
+#litter N
+m3<- rma (yi = yi, vi = vi, mod = ~Lit_Nit, method = "REML", data = litmeta )
+#litter lignin
+m4 <- rma (yi = yi, vi = vi, mod = ~Lit_Lig, method = "REML", data = litmeta )
+#Lignin:Nitrogen
+m5<- rma (yi = yi, vi = vi, mod = ~Lit_Lig_Nit_ratio, method = "REML", data = litmeta )
+#Litter C
+m6<- rma (yi = yi, vi = vi, mod = ~Lit_Car, method = "REML", data = litmeta )
+#Species diversity/ species richness 
+m7<- rma (yi = yi, vi = vi, mod = ~sp_div_in_mixture, method = "REML", data = litmeta )
+# fauna available (divided the mesh size into two present and absent)
+m8<- rma (yi = yi, vi = vi, mod = ~Fauna_available, method = "REML", data = litmeta )
+# climatic region (divided into 3 temperate sub-tropics and tropics )
+m9 <- rma (yi = yi, vi = vi, mod = ~climatic_region, method = "REML", data = litmeta )
+#precipitation levels (divided into 3 low medium and high)
+m10<- rma (yi = yi, vi = vi, mod = ~precipitation_levels, method = "REML", data = litmeta )
+#Time in days
+m11<- rma (yi = yi, vi = vi, mod = ~Time_Days, method = "REML", data = litmeta )
+m12 <- rma (yi = yi, vi = vi, mod = ~Annual_precip, method = "REML", data = litmeta )
+```
+
+#### Check summaries
+
+```{r}
+summary(m1)
+summary(m2)
+summary(m3)
+summary(m4)
+summary(m5)
+summary(m6)
+summary(m7)
+summary(m8)
+summary(m9)
+summary(m10)
+summary(m11)
+summary(m12)
+```
+
+### Metaregression whole data all moderators together
+
+Metaregression for all the moderators together include the ones that are not higly correlated
+
+```{r}
+metareg_all<-rma(yi ~ Lit_Pho + Lit_Nit + Lit_Lig_Nit_ratio+Time_Days+Lit_Car+sp_div_in_mixture+
+                   Fauna_available+climatic_region+precipitation_levels+Lit_Car_Nit_ratio, vi=vi,method = "REML", data = litmeta)
+summary(metareg_all)
+
+```
+
+#### Best model that fits our data
+
+We should incorporate moderators that are highly correlated. Thus, we need to run correlation test.
+
+##### Check for correlations between some variables within the data.
+
+```{r}
+library(ggplot2)
+library("ggpubr")
+ggscatter(litmeta, x = "Lit_Car", y = "Lit_Car_Nit_ratio", 
+          add = "reg.line", conf.int = TRUE, 
+          cor.coef = TRUE, cor.method = "pearson",
+          xlab = "Litter carbon %", ylab = "C:N Ratio")
+
+cor1 <- cor.test(litmeta$Lit_Car, litmeta$Lit_Car_Nit_ratio, 
+                method = "pearson")
+cor1
+ggscatter(litmeta, x = "Lit_Nit", y = "Lit_Car_Nit_ratio", 
+          add = "reg.line", conf.int = TRUE, 
+          cor.coef = TRUE, cor.method = "pearson",
+          xlab = "Litter N %", ylab = "C:N Ratio")
+cor2 <- cor.test(litmeta$Lit_Nit, litmeta$Lit_Car_Nit_ratio,  method="pearson")
+cor2
+```
+
+
+
+#### Conduct model selection using glmulti 
+
+```{r}
+library(rJava)
+library(glmulti)
+library(metafor)
+```
+
+Define a function that takes a model formula and a dataset as input and then fits a random
+or mixed-effects meta-regression model to the given data using maximum likelihood estimation:
+
+```{r}
+
+rma.glmulti <- function(formula, data, ...)
+  rma(formula, vi, data=data, method="ML", ...)
+```
+
+
+Here we ensure that we only  keep  rows with no missing data from all predictors used
+we used the metaregression results to choose the moderators to use in glmulti.
+moderators that were not significant were dropped apart from precipitation_levels since its part of our 2nd hypothesis.
+
+```{r}
+dim(litmeta)
+litmeta2 <- litmeta[!apply(litmeta[,c( "Lit_Car", "Time_Days", "sp_div_in_mixture", "Fauna_available","climatic_region","Annual_precip", "Lit_Pho" )], 1, anyNA),]
+dim(litmeta2)
+
+```
+
+
+```{r}
+res <- glmulti(yi ~Lit_Car + Lit_Pho + Time_Days+ sp_div_in_mixture+ Fauna_available:precipitation_levels+
+                 Fauna_available+climatic_region+precipitation_levels, data=litmeta2,
+               level=1, fitfunction=rma.glmulti, crit="aicc")
+
+```
+
+##### Brief summary of the results 
+
+
+```{r}
+print (res)
+```
+
+##### Plot of the AICc values for all 512 models
+
+
+```{r}
+plot(res)  
+```
+
+##### Looking at the top 10 models
+
+```{r}
+
+top <- weightable(res)
+top <- top[top$aicc <= min(top$aicc) + 2,]
+top  
+```
+
+##### Examine the best model
+
+```{r}
+summary(res@objects[[1]])
+```
+
+##### Obtain a plot of the relative importance of the various model terms with the code below
+
+```{r}
+plot(res, type="s")
+```
+
+##### Carry out the computations for multimodel inference
+
+```{r}
+eval(metafor:::.glmulti)
+coef(res)
+mmi <- as.data.frame(coef(res))
+mmi <- data.frame(Estimate=mmi$Est, SE=sqrt(mmi$Uncond), Importance=mmi$Importance, row.names=row.names(mmi))
+mmi$z <- mmi$Estimate / mmi$SE
+mmi$p <- 2*pnorm(abs(mmi$z), lower.tail=FALSE)
+names(mmi) <- c("Estimate", "Std. Error", "Importance", "z value", "Pr(>|z|)")
+mmi$ci.lb <- mmi[[1]] - qnorm(.975) * mmi[[2]]
+mmi$ci.ub <- mmi[[1]] + qnorm(.975) * mmi[[2]]
+mmi <- mmi[order(mmi$Importance, decreasing=TRUE), c(1,2,4:7,3)]
+round(mmi, 4)
+```
+
+### Remaing figures
+
+Combine the plots into different panels for the manuscript using patchwork
+
+#### Fig 4
+
+```{r}
+library(patchwork)
+fig5<- plot3 + plot11 + plot12
+fig5
+```
+
+```{r}
+ggsave(filename="figure5.png", plot=fig5, device="png",
+       path=path, height=5, width=15, units="in", dpi=500)
+```
+
+#### Fig 5
+
+```{r}
+library(patchwork)
+fig4<- plot6 + plot9 + plot10
+fig4
+```
+
+```{r}
+ggsave(filename="figure4.png", plot=fig4, device="png",
+       path=path, height=5, width=15, units="in", dpi=500)
+
+```
+
+
+### Old fig 4
+
+```{r}
+library(patchwork)
+fig3<- plot3 + plot7 + plot2 
+fig3
+ggsave(filename="figure3.png", plot=fig3, device="png",
+       path=path, height=4, width=10, units="in", dpi=500)
+ggsave(filename="figure.png", plot=fig3, device="png",path = path, dpi=500)
+```
+
+#END
+
+
+       
