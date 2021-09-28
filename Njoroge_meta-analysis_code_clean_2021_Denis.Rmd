@@ -18,7 +18,7 @@ output:
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = FALSE)
 getwd()
 ```
 
@@ -64,7 +64,6 @@ library(ggspatial)
 library(ggmap)
 library(OpenStreetMap)
 library(ggplot2)
-library(sf)
 library(rnaturalearth)
 library(rnaturalearthdata)
 library(maps)
