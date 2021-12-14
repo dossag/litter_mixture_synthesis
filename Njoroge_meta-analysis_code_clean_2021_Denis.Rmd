@@ -25,7 +25,7 @@ getwd()
 
 # Introduction
 
-This R script records Denis et al 2021 meta analysis on effect of fauna and litter mixture on litter decomposition across the globe. The manuscript is entitled "Soil fauna accelerate litter mixture decomposition globally, especially in dry environments" published in Journal of Ecology xxx.
+This R script records Njoroge et al 2021 meta analysis on effect of fauna and litter mixture on litter decomposition across the globe. The manuscript is entitled "Soil fauna accelerate litter mixture decomposition globally, especially in dry environments" published in Journal of Ecology xxx.
 
 This work is based on conceptual figure
 
@@ -306,7 +306,7 @@ forest(estimates, variances, slab=labels,col="black", header = "Fauna status",pc
 
 We can also use ggplot2 package to plot the above forest plot. This gives more flexibility in graph plotting and leads to better visual impact (Figure 3) 
 
-```{r}
+```{r, warning=FALSE}
 dat <- data.frame(
   label = c("Fauna     (274)
   present            ", "Fauna     (593)
@@ -702,7 +702,7 @@ summary(mettemp)
 ```
 
 
-#### Effect sizes based on the fauna status in diffrent climatic regions
+#### Effect sizes based on the fauna status in different climatic regions
 
 ```{r, results='hold', warning=FALSE}
 tr_fauna<-rma(yi, vi, data = tropics, subset = (Fauna_available=="present"))
@@ -851,7 +851,7 @@ plot10 <- ggplot(dat10, aes(x=point_est, y=label, shape=as.factor(group), color=
 plot10
 ```
 
-#### Model for diffrent ecosystems with fauna availability as the moderator
+#### Model for different ecosystems with fauna availability as the moderator
 
 ```{r, results='hold', warning=FALSE}
 ffauna<- rma (yi = yi, vi = vi, mod = ~Fauna_available, method = "REML", data = forest )
@@ -915,27 +915,17 @@ f_spe_rich12
 
 s_spe_rich2<-rma(yi, vi, data = shrubland, subset = (species_richness=="two"))
 s_spe_rich3<-rma(yi, vi, data = shrubland, subset = (species_richness=="three"))
-#s_spe_rich4<-rma(yi, vi, data = shrubland, subset = (species_richness=="four")) #k=0
-#s_spe_rich5<-rma(yi, vi, data = shrubland, subset = (species_richness=="five")) #k=0
-#s_spe_rich6<-rma(yi, vi, data = shrubland, subset = (species_richness=="six"))k=0
-#s_spe_rich12<-rma(yi, vi, data = shrubland, subset = (species_richness=="twelve"))#k=0
 s_spe_rich2
 s_spe_rich3
 g_spe_rich2<-rma(yi, vi, data = grassland, subset = (species_richness=="two"))
 g_spe_rich3<-rma(yi, vi, data = grassland, subset = (species_richness=="three"))
 g_spe_rich4<-rma(yi, vi, data = grassland, subset = (species_richness=="four"))
-#g_spe_rich5<-rma(yi, vi, data = grassland, subset = (species_richness=="five"))#k=0
-#g_spe_rich6<-rma(yi, vi, data = grassland, subset = (species_richness=="six"))k=0
-#g_spe_rich12<-rma(yi, vi, data = grassland, subset = (species_richness=="twelve"))k=0
 g_spe_rich2
 g_spe_rich3
 g_spe_rich4
 p_spe_rich2<-rma(yi, vi, data = plantation, subset = (species_richness=="two"))
 p_spe_rich3<-rma(yi, vi, data = plantation, subset = (species_richness=="three"))
 p_spe_rich4<-rma(yi, vi, data = plantation, subset = (species_richness=="four"))
-#p_spe_rich5<-rma(yi, vi, data = plantation, subset = (species_richness=="five"))
-#p_spe_rich6<-rma(yi, vi, data = plantation, subset = (species_richness=="six"))
-#p_spe_rich12<-rma(yi, vi, data = plantation, subset = (species_richness=="twelve"))
 p_spe_rich2
 p_spe_rich3
 p_spe_rich4
@@ -943,7 +933,7 @@ p_spe_rich4
 
 ##### Forest plot
 
-To visually look at the results, we use of a forest plot
+To visually look at the results, we use a forest plot
 
 ```{r, results='hold', warning=FALSE}
 estimates <- c(coef(res.forest),coef(f_spe_rich2), coef(f_spe_rich3), coef(f_spe_rich4),coef(f_spe_rich5), coef(f_spe_rich6),coef(f_spe_rich12),coef(res.shrubland),coef(s_spe_rich2), coef(s_spe_rich3),coef(res.grassland),coef(g_spe_rich2), coef(g_spe_rich3),coef(g_spe_rich4),coef(res.plantation),coef(p_spe_rich2), coef(p_spe_rich3), coef(p_spe_rich4))
@@ -1285,7 +1275,7 @@ summary(metareg_all)
 
 #### Best model that fits our data
 
-We should incorporate moderators that are highly correlated. Thus, we need to run correlation test.
+We should not incorporate moderators that are highly correlated. Thus, we need to run correlation test.
 
 ##### Check for correlations between some variables within the data.
 
@@ -1353,7 +1343,7 @@ res <- glmulti(yi ~Lit_Car + Lit_Pho + Time_Days+ sp_div_in_mixture+ Fauna_avail
 print (res)
 ```
 
-##### Plot of the AICc values for all 512 models
+##### Plot of the AICc values for all 150 models
 
 
 ```{r, results='hold', warning=FALSE}
@@ -1406,5 +1396,7 @@ ggsave(filename="figure4.png", plot=fig4, device="png",
 
 ```
 
+# Conclusion 
 
+This study investigated litter decomposition which is an important process in nutrient cycling within ecosystems. The results add to the current ecology knowledge by revealing the averaged outcome of global decomposition of litter mixtures and their interactions between soil fauna effect and precipitation. 
        
